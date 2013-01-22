@@ -37,29 +37,6 @@ public:
 	
 	~GraphBundler()
 	{
-		if(optimizer)
-		{
-			std::cout << "Releasing optimizer" << std::endl;
-			delete optimizer;
-		}
-		
-		if(solver)
-		{
-			std::cout << "Releasing solver" << std::endl;
-			delete solver;
-		}
-		
-		if(linearSolver)
-		{
-			std::cout << "Releasing linearSolver" << std::endl;
-			delete linearSolver;
-		}	
-		
-		if(solver_ptr)
-		{
-			std::cout << "Releasing solver_ptr" << std::endl;
-			delete solver_ptr;
-		}
 	}
 	
 	void doBundleAdjustment(int numIterations)
