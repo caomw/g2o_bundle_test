@@ -130,65 +130,42 @@ int main(int argc, const char* argv[]){
   cout << "DENSE: "<<  DENSE << endl;
 
 	GraphBundler bundler(DENSE,ROBUST_KERNEL);
+	SyntheticWorldGenerator world(500,1000.0,Vector2d(320.,240.));
 
-
-  vector<Vector3d> true_points;
-  for (size_t i=0;i<500; ++i)
-  {
-    true_points.push_back(Vector3d((Sample::uniform()-0.5)*3,
-                                   Sample::uniform()-0.5,
-                                   Sample::uniform()+3));
-  }
-
-  double focal_length= 1000.;
-  Vector2d principal_point(320., 240.);
-
-  vector<g2o::SE3Quat,aligned_allocator<g2o::SE3Quat> > true_poses;
-
-  if (!bundler.addCameraParams(focal_length,principal_point)) {
+  if (!bundler.addCameraParams(world.getFocalLength(),world.getPrincipalPoint())) {
     assert(false);
   }
 
   int vertex_id = 0;
-  for (size_t i=0; i<15; ++i) {
-    Vector3d trans(i*0.04-1.,0,0);
-
-    Eigen:: Quaterniond q;
-    q.setIdentity();
-    g2o::SE3Quat pose(q,trans);
-
-	vertex_id = bundler.addPoseVertex(pose);
-    true_poses.push_back(pose);
+  for (size_t i=0; i<world.numPoses(); ++i) {
+    vertex_id = bundler.addPoseVertex(world.getPose(i));
   }
 
   int point_id=vertex_id;
   int point_num = 0;
   double sum_diff2 = 0;
 
-  cout << endl;
   tr1::unordered_map<int,int> pointid_2_trueid;
   tr1::unordered_set<int> inliers;
 
-  for (size_t i=0; i<true_points.size(); ++i){
+  for (size_t i=0; i< world.numPoints(); ++i){
 	
-	point_id = bundler.addPointVertex(true_points.at(i)
-                     + Vector3d(Sample::gaussian(1),
-                                Sample::gaussian(1),
-                                Sample::gaussian(1)));
+	point_id = bundler.addPointVertex(world.getPointWithNoise(i));
 	
     int num_obs = 0;
-    for (size_t j=0; j<true_poses.size(); ++j){
-      Vector2d z = bundler.predict(true_poses.at(j).map(true_points.at(i)));
+    for (size_t j=0; j<world.numPoses(); ++j){
+      Vector2d z = bundler.predict(world.getPose(j).map(world.getPoint(i)));
       if (z[0]>=0 && z[1]>=0 && z[0]<640 && z[1]<480){
         ++num_obs;
       }
     }
+
     if (num_obs>=2){
 	
       bool inlier = true;
-      for (size_t j=0; j<true_poses.size(); ++j){
+      for (size_t j=0; j<world.numPoses(); ++j){
         Vector2d z
-            = bundler.predict(true_poses.at(j).map(true_points.at(i)));
+            = bundler.predict(world.getPose(j).map(world.getPoint(i)));
 
         if (z[0]>=0 && z[1]>=0 && z[0]<640 && z[1]<480){
           double sam = Sample::uniform();
