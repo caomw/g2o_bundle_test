@@ -15,36 +15,51 @@ public:
 	
 	GraphBundler(bool isDenseOptimizer, bool useRobustKernel) : unique_id(-1)
 	{
-		optimizer= std::tr1::shared_ptr<g2o::SparseOptimizer>(new g2o::SparseOptimizer);
+		optimizer = new g2o::SparseOptimizer;
 		optimizer->setVerbose(false);
 		
 		if(isDenseOptimizer)
 		{
-			linearSolver = 
-			std::tr1::shared_ptr<g2o::BlockSolver_6_3::LinearSolverType>(
-				new g2o::LinearSolverDense<g2o::BlockSolver_6_3::PoseMatrixType>()
-				);
+			linearSolver = new g2o::LinearSolverDense<g2o::BlockSolver_6_3::PoseMatrixType>();
 		}
 		else
 		{
-			linearSolver = 
-			std::tr1::shared_ptr<g2o::BlockSolver_6_3::LinearSolverType>(
-			new g2o::LinearSolverCholmod<g2o::BlockSolver_6_3::PoseMatrixType>()
-			);
+			linearSolver = new g2o::LinearSolverCholmod<g2o::BlockSolver_6_3::PoseMatrixType>();
 		}
 		
-		solver_ptr = std::tr1::shared_ptr<g2o::BlockSolver_6_3>(new g2o::BlockSolver_6_3(linearSolver.get()));
-		solver = std::tr1::shared_ptr<g2o::OptimizationAlgorithmLevenberg>(
-			new g2o::OptimizationAlgorithmLevenberg(solver_ptr.get()));
+		solver_ptr = new g2o::BlockSolver_6_3(linearSolver);
+		solver = new g2o::OptimizationAlgorithmLevenberg(solver_ptr);
 		
-		optimizer->setAlgorithm(solver.get());
+		optimizer->setAlgorithm(solver);
 		
 		robustKernel = useRobustKernel;
 	};
 	
 	~GraphBundler()
 	{
+		if(optimizer)
+		{
+			std::cout << "Releasing optimizer" << std::endl;
+			delete optimizer;
+		}
 		
+		if(solver)
+		{
+			std::cout << "Releasing solver" << std::endl;
+			delete solver;
+		}
+		
+		if(linearSolver)
+		{
+			std::cout << "Releasing linearSolver" << std::endl;
+			delete linearSolver;
+		}	
+		
+		if(solver_ptr)
+		{
+			std::cout << "Releasing solver_ptr" << std::endl;
+			delete solver_ptr;
+		}
 	}
 	
 	void doBundleAdjustment(int numIterations)
@@ -129,8 +144,8 @@ private:
 	g2o::CameraParameters * cam_params;
 	
 	//! g2o related variables
-	std::tr1::shared_ptr<g2o::SparseOptimizer> optimizer;
-	std::tr1::shared_ptr<g2o::BlockSolver_6_3::LinearSolverType> linearSolver;
-	std::tr1::shared_ptr<g2o::BlockSolver_6_3> solver_ptr;
-	std::tr1::shared_ptr<g2o::OptimizationAlgorithmLevenberg> solver;
+	g2o::SparseOptimizer *optimizer;
+	g2o::BlockSolver_6_3::LinearSolverType *linearSolver;
+	g2o::BlockSolver_6_3 *solver_ptr;
+	g2o::OptimizationAlgorithmLevenberg *solver;
 };
