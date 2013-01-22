@@ -66,5 +66,7 @@ set(CMAKE_BUILD_TYPE RelWithDebInfo)
 set(CMAKE_VERBOSE_MAKEFILE yes)
 
 # demo program
-add_executable(ba_demo ${SRC_FILES})
+add_executable(main "${SRC_DIR}/main.cpp")
+target_link_libraries (main ${LIBS} ${G2O_CORE_LIBRARY} ${G2O_STUFF_LIBRARY} ${CHOLMOD_LIBRARY})
+add_executable(ba_demo "${SRC_DIR}/ba_demo.cpp")
 target_link_libraries (ba_demo ${LIBS} ${G2O_CORE_LIBRARY} ${G2O_STUFF_LIBRARY} ${CHOLMOD_LIBRARY})

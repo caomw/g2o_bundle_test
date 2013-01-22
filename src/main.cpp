@@ -132,110 +132,94 @@ int main(int argc, const char* argv[]){
 	GraphBundler bundler(DENSE,ROBUST_KERNEL);
 	SyntheticWorldGenerator world(500,1000.0,Vector2d(320.,240.));
 
-  if (!bundler.addCameraParams(world.getFocalLength(),world.getPrincipalPoint())) {
-    assert(false);
-  }
+	if (!bundler.addCameraParams(world.getFocalLength(),world.getPrincipalPoint()))
+	{
+		assert(false);
+	}
 
-  int vertex_id = 0;
-  for (size_t i=0; i<world.numPoses(); ++i) {
-    vertex_id = bundler.addPoseVertex(world.getPose(i));
-  }
+ 	for (size_t i=0; i<world.numPoses(); ++i) 
+	{
+		bundler.addPoseVertex(world.getPose(i));
+	}
 
-  int point_id=vertex_id;
-  int point_num = 0;
-  double sum_diff2 = 0;
+	int point_id=0;
+	int point_num = 0;
+	double sum_diff2 = 0;
 
-  tr1::unordered_map<int,int> pointid_2_trueid;
-  tr1::unordered_set<int> inliers;
+	tr1::unordered_map<int,int> pointid_2_trueid;
+	tr1::unordered_set<int> inliers;
 
-  for (size_t i=0; i< world.numPoints(); ++i){
+	//! Add points and observations.
+	for (size_t i=0; i< world.numPoints(); ++i)
+	{
+		point_id = bundler.addPointVertex(world.getPointWithNoise(i));
 	
-	point_id = bundler.addPointVertex(world.getPointWithNoise(i));
-	
-    int num_obs = 0;
-    for (size_t j=0; j<world.numPoses(); ++j){
-      Vector2d z = bundler.predict(world.getPose(j).map(world.getPoint(i)));
-      if (z[0]>=0 && z[1]>=0 && z[0]<640 && z[1]<480){
-        ++num_obs;
-      }
-    }
+		int num_obs = 0;
+		
+		//! Count number of visible points
+		for (size_t j=0; j<world.numPoses(); ++j)
+		{
+			Vector2d z = bundler.predict(world.getPose(j).map(world.getPoint(i)));
+			if(world.isInImage(z))
+			{
+				++num_obs;
+			}
+		}
 
-    if (num_obs>=2){
-	
-      bool inlier = true;
-      for (size_t j=0; j<world.numPoses(); ++j){
-        Vector2d z
-            = bundler.predict(world.getPose(j).map(world.getPoint(i)));
+		if (num_obs>=2)
+		{
+			bool inlier = true;
+			
+			for (size_t j=0; j<world.numPoses(); ++j)
+			{
+				Vector2d z = bundler.predict(world.getPose(j).map(world.getPoint(i)));
 
-        if (z[0]>=0 && z[1]>=0 && z[0]<640 && z[1]<480){
-          double sam = Sample::uniform();
-          if (sam<OUTLIER_RATIO){
-            z = Vector2d(Sample::uniform(0,640),
-                         Sample::uniform(0,480));
-            inlier= false;
-          }
-          z += Vector2d(Sample::gaussian(PIXEL_NOISE),
-                        Sample::gaussian(PIXEL_NOISE));
+				if (world.isInImage(z))
+				{
+					double sam = Sample::uniform();
+					
+					//! Simulates outlier situation
+					if (sam<OUTLIER_RATIO)
+					{
+						z = Vector2d(Sample::uniform(0,640),Sample::uniform(0,480));
+						inlier= false;
+					}
+					
+					z += Vector2d(Sample::gaussian(PIXEL_NOISE),Sample::gaussian(PIXEL_NOISE));
+					bundler.setConstraint(i,j,z);
+				}
+			}/// end for
 
-					bundler.setConstraint(point_id,j,z);
-        }
-      }
+			if (inlier)
+			{
+				inliers.insert(point_id);
+				Vector3d diff = bundler.getPointFromGraph(point_id) - world.getPoint(i);
+				sum_diff2 += diff.dot(diff);
+			} /// end if
+			pointid_2_trueid.insert(make_pair(point_id,i));
+			++point_num;
+		}/// end if (num_obs>=2)
+	}/// end for (size_t i=0; i< world.numPoints(); ++i)
 
-      if (inlier){
-        inliers.insert(point_id);
-        //Vector3d diff = v_p->estimate() - true_points[i];
+	cout << endl;
 
-        //sum_diff2 += diff.dot(diff);
-      }
-      pointid_2_trueid.insert(make_pair(point_id,i));
-      ++point_num;
-    }
-  }
-  cout << endl;
-#if 0
-  optimizer.initializeOptimization();
-  optimizer.setVerbose(true);
-  if (STRUCTURE_ONLY){
-    g2o::StructureOnlySolver<3> structure_only_ba;
-    cout << "Performing structure-only BA:"   << endl;
-    g2o::OptimizableGraph::VertexContainer points;
-    for (g2o::OptimizableGraph::VertexIDMap::const_iterator it = optimizer.vertices().begin(); it != optimizer.vertices().end(); ++it) {
-      g2o::OptimizableGraph::Vertex* v = static_cast<g2o::OptimizableGraph::Vertex*>(it->second);
-      if (v->dimension() == 3)
-        points.push_back(v);
-    }
-    structure_only_ba.calc(points, 10);
-  }
-#endif
-  cout << "Performing full BA:" << endl;
-	bundler.doBundleAdjustment(10);
+	cout << "Performing full BA:" << endl;
+	bundler.doBundleAdjustment(15);
 	cout << "Done" << endl;
-#if 0
-  cout << "Point error before optimisation (inliers only): " << sqrt(sum_diff2/point_num) << endl;
-  point_num = 0;
-  sum_diff2 = 0;
-  for (tr1::unordered_map<int,int>::iterator it=pointid_2_trueid.begin();
-       it!=pointid_2_trueid.end(); ++it){
-    g2o::HyperGraph::VertexIDMap::iterator v_it
-        = optimizer.vertices().find(it->first);
-    if (v_it==optimizer.vertices().end()){
-      cerr << "Vertex " << it->first << " not in graph!" << endl;
-      exit(-1);
-    }
-    g2o::VertexSBAPointXYZ * v_p
-        = dynamic_cast< g2o::VertexSBAPointXYZ * > (v_it->second);
-    if (v_p==0){
-      cerr << "Vertex " << it->first << "is not a PointXYZ!" << endl;
-      exit(-1);
-    }
-    Vector3d diff = v_p->estimate()-true_points[it->second];
-    if (inliers.find(it->first)==inliers.end())
-      continue;
-    sum_diff2 += diff.dot(diff);
-    ++point_num;
-  }
-  cout << "Point error after optimisation (inliers only): " << sqrt(sum_diff2/point_num) << endl;
-  cout << endl;
-#endif
+	
+	cout << "Point error before optimisation (inliers only): " << sqrt(sum_diff2/point_num) << endl;
+	
+	sum_diff2 = 0;
+	point_num = 0;
+	
+	for(size_t i=0;i<bundler.numPoint();++i)
+	{
+		Vector3d diff = bundler.getPointFromResult(i) - world.getPoint(i);
+		sum_diff2 += diff.dot(diff);
+		++point_num;
+	}
+	
+	cout << "Point error after optimisation (inliers only): " << sqrt(sum_diff2/point_num) << endl;
+	
 }
 
