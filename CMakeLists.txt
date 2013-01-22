@@ -66,5 +66,5 @@ set(CMAKE_BUILD_TYPE RelWithDebInfo)
 set(CMAKE_VERBOSE_MAKEFILE yes)
 
 # demo program
-add_executable(g2o_bundle_test ${SRC_FILES})
-target_link_libraries (g2o_bundle_test ${LIBS} ${G2O_CORE_LIBRARY} ${G2O_STUFF_LIBRARY} ${CHOLMOD_LIBRARY})
+add_executable(ba_demo ${SRC_FILES})
+target_link_libraries (ba_demo ${LIBS} ${G2O_CORE_LIBRARY} ${G2O_STUFF_LIBRARY} ${CHOLMOD_LIBRARY})

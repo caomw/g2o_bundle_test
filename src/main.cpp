@@ -45,6 +45,8 @@
 //#include "g2o/math_groups/se3quat.h"
 #include "g2o/solvers/structure_only/structure_only_solver.h"
 
+#include "GraphBundler.hpp"
+
 using namespace Eigen;
 using namespace std;
 
@@ -127,25 +129,7 @@ int main(int argc, const char* argv[]){
   cout << "STRUCTURE_ONLY: " << STRUCTURE_ONLY<< endl;
   cout << "DENSE: "<<  DENSE << endl;
 
-
-
-  g2o::SparseOptimizer optimizer;
-  optimizer.setVerbose(false);
-  g2o::BlockSolver_6_3::LinearSolverType * linearSolver;
-  if (DENSE) {
-    linearSolver= new g2o::LinearSolverDense<g2o
-        ::BlockSolver_6_3::PoseMatrixType>();
-  } else {
-    linearSolver
-        = new g2o::LinearSolverCholmod<g2o
-        ::BlockSolver_6_3::PoseMatrixType>();
-  }
-
-
-  g2o::BlockSolver_6_3 * solver_ptr
-      = new g2o::BlockSolver_6_3(linearSolver);
-  g2o::OptimizationAlgorithmLevenberg* solver = new g2o::OptimizationAlgorithmLevenberg(solver_ptr);
-  optimizer.setAlgorithm(solver);
+	GraphBundler bundler(DENSE,ROBUST_KERNEL);
 
 
   vector<Vector3d> true_points;
@@ -159,13 +143,9 @@ int main(int argc, const char* argv[]){
   double focal_length= 1000.;
   Vector2d principal_point(320., 240.);
 
-  vector<g2o::SE3Quat,
-      aligned_allocator<g2o::SE3Quat> > true_poses;
-  g2o::CameraParameters * cam_params
-      = new g2o::CameraParameters (focal_length, principal_point, 0.);
-  cam_params->setId(0);
+  vector<g2o::SE3Quat,aligned_allocator<g2o::SE3Quat> > true_poses;
 
-  if (!optimizer.addParameter(cam_params)) {
+  if (!bundler.addCameraParams(focal_length,principal_point)) {
     assert(false);
   }
 
@@ -176,17 +156,11 @@ int main(int argc, const char* argv[]){
     Eigen:: Quaterniond q;
     q.setIdentity();
     g2o::SE3Quat pose(q,trans);
-    g2o::VertexSE3Expmap * v_se3
-        = new g2o::VertexSE3Expmap();
-    v_se3->setId(vertex_id);
-    if (i<2){
-      v_se3->setFixed(true);
-    }
-    v_se3->setEstimate(pose);
-    optimizer.addVertex(v_se3);
+
+	vertex_id = bundler.addPoseVertex(pose);
     true_poses.push_back(pose);
-    vertex_id++;
   }
+
   int point_id=vertex_id;
   int point_num = 0;
   double sum_diff2 = 0;
@@ -196,27 +170,25 @@ int main(int argc, const char* argv[]){
   tr1::unordered_set<int> inliers;
 
   for (size_t i=0; i<true_points.size(); ++i){
-    g2o::VertexSBAPointXYZ * v_p
-        = new g2o::VertexSBAPointXYZ();
-    v_p->setId(point_id);
-    v_p->setMarginalized(true);
-    v_p->setEstimate(true_points.at(i)
+	
+	point_id = bundler.addPointVertex(true_points.at(i)
                      + Vector3d(Sample::gaussian(1),
                                 Sample::gaussian(1),
                                 Sample::gaussian(1)));
+	
     int num_obs = 0;
     for (size_t j=0; j<true_poses.size(); ++j){
-      Vector2d z = cam_params->cam_map(true_poses.at(j).map(true_points.at(i)));
+      Vector2d z = bundler.predict(true_poses.at(j).map(true_points.at(i)));
       if (z[0]>=0 && z[1]>=0 && z[0]<640 && z[1]<480){
         ++num_obs;
       }
     }
     if (num_obs>=2){
-      optimizer.addVertex(v_p);
+	
       bool inlier = true;
       for (size_t j=0; j<true_poses.size(); ++j){
         Vector2d z
-            = cam_params->cam_map(true_poses.at(j).map(true_points.at(i)));
+            = bundler.predict(true_poses.at(j).map(true_points.at(i)));
 
         if (z[0]>=0 && z[1]>=0 && z[0]<640 && z[1]<480){
           double sam = Sample::uniform();
@@ -227,34 +199,23 @@ int main(int argc, const char* argv[]){
           }
           z += Vector2d(Sample::gaussian(PIXEL_NOISE),
                         Sample::gaussian(PIXEL_NOISE));
-          g2o::EdgeProjectXYZ2UV * e
-              = new g2o::EdgeProjectXYZ2UV();
-          e->setVertex(0, dynamic_cast<g2o::OptimizableGraph::Vertex*>(v_p));
-          e->setVertex(1, dynamic_cast<g2o::OptimizableGraph::Vertex*>
-                       (optimizer.vertices().find(j)->second));
-          e->setMeasurement(z);
-          e->information() = Matrix2d::Identity();
-          if (ROBUST_KERNEL) {
-            g2o::RobustKernelHuber* rk = new g2o::RobustKernelHuber;
-            e->setRobustKernel(rk);
-          }
-          e->setParameterId(0, 0);
-          optimizer.addEdge(e);
+
+					bundler.setConstraint(point_id,j,z);
         }
       }
 
       if (inlier){
         inliers.insert(point_id);
-        Vector3d diff = v_p->estimate() - true_points[i];
+        //Vector3d diff = v_p->estimate() - true_points[i];
 
-        sum_diff2 += diff.dot(diff);
+        //sum_diff2 += diff.dot(diff);
       }
       pointid_2_trueid.insert(make_pair(point_id,i));
-      ++point_id;
       ++point_num;
     }
   }
   cout << endl;
+#if 0
   optimizer.initializeOptimization();
   optimizer.setVerbose(true);
   if (STRUCTURE_ONLY){
@@ -268,10 +229,11 @@ int main(int argc, const char* argv[]){
     }
     structure_only_ba.calc(points, 10);
   }
-  cout << endl;
+#endif
   cout << "Performing full BA:" << endl;
-  optimizer.optimize(10);
-  cout << endl;
+	bundler.doBundleAdjustment(10);
+	cout << "Done" << endl;
+#if 0
   cout << "Point error before optimisation (inliers only): " << sqrt(sum_diff2/point_num) << endl;
   point_num = 0;
   sum_diff2 = 0;
@@ -297,5 +259,6 @@ int main(int argc, const char* argv[]){
   }
   cout << "Point error after optimisation (inliers only): " << sqrt(sum_diff2/point_num) << endl;
   cout << endl;
+#endif
 }
 
