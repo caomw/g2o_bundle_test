@@ -37,9 +37,9 @@ SET(LIB_DBOW2 /usr/local/include/DBoW2)
 
 # 3rd party libraries
 if(APPLE)
-SET(LIB_NAMES amd colamd f2c lapack blas g2o_types_sba)
+SET(LIB_NAMES amd colamd f2c lapack blas g2o_types_sba Sophus)
 else()
-SET(LIB_NAMES lapack blas f2c g2o_types_sba)
+SET(LIB_NAMES lapack blas f2c g2o_types_sba Sophus)
 endif()
 
 FOREACH(lib ${LIB_NAMES})

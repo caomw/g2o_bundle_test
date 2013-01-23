@@ -4,6 +4,47 @@
 
 #include <tr1/unordered_map>
 
+#include <unsupported/Eigen/MatrixFunctions>
+
+//! Sophus.
+#include <sophus/se3.h>
+
+namespace Hyon
+{
+	
+class Sample {
+public:
+  static int uniform(int from, int to);
+  static double uniform();
+  static double gaussian(double sigma);
+};
+
+static double uniform_rand(double lowerBndr, double upperBndr){
+  return lowerBndr + ((double) std::rand() / (RAND_MAX + 1.0)) * (upperBndr - lowerBndr);
+}
+
+static double gauss_rand(double mean, double sigma){
+  double x, y, r2;
+  do {
+    x = -1.0 + 2.0 * uniform_rand(0.0, 1.0);
+    y = -1.0 + 2.0 * uniform_rand(0.0, 1.0);
+    r2 = x * x + y * y;
+  } while (r2 > 1.0 || r2 == 0.0);
+  return mean + sigma * y * std::sqrt(-2.0 * log(r2) / r2);
+}
+
+int Sample::uniform(int from, int to){
+  return static_cast<int>(uniform_rand(from, to));
+}
+
+double Sample::uniform(){
+  return uniform_rand(0., 1.);
+}
+
+double Sample::gaussian(double sigma){
+  return gauss_rand(0., sigma);
+}
+	
 class SyntheticWorldGenerator
 {
 public:
@@ -28,6 +69,10 @@ public:
 		    q.setIdentity();
 		    g2o::SE3Quat pose(q,trans);
 			true_poses.push_back(pose);
+			
+			//! Generate pose with random attitude and translation
+			//true_poses_se3.push_back(Sophus::SE3(Sophus::SO3::exp(Eigen::Vector3d(uniform(), uniform(), uniform())),Eigen::Vector3d(i*0.04-1.0,0,0)));
+			true_poses_se3.push_back(Sophus::SE3(pose.rotation().toRotationMatrix(),trans));
 		}
 	}
 	
@@ -76,9 +121,15 @@ public:
 		return true_poses.at(idx);
 	}
 	
+	Sophus::SE3 getPoseSE3(int idx)
+	{
+		return true_poses_se3.at(idx);
+	}
+	
 private:
 	std::vector<Eigen::Vector3d> true_points;
 	std::vector<g2o::SE3Quat,Eigen::aligned_allocator<g2o::SE3Quat> > true_poses;
+	std::vector<Sophus::SE3> true_poses_se3;
 	
 	double focal_length;
 	Eigen::Vector2d principal_point;
@@ -109,6 +160,265 @@ private:
 	  } while (r2 > 1.0 || r2 == 0.0);
 	  return mean + sigma * y * std::sqrt(-2.0 * log(r2) / r2);
 	}
+};
+
+
+struct Point3d
+{
+public:
+	Point3d() : id(-1), isLive(false), vertexNodeId(-1), isInsertedIntoBundler(false){}
+
+	//! copy constructor for STL container
+	Point3d(const Point3d& p)
+	{
+		id = p.id;
+		coordinates = p.coordinates;
+		coordinates_homog = p.coordinates_homog;
+		isLive = p.isLive;
+		vertexNodeId = p.vertexNodeId;
+		isInsertedIntoBundler = p.isInsertedIntoBundler;
+	}
+	
+	void setPoint(int pid,const Eigen::Vector3d &p)
+	{
+		id = pid;
+		coordinates = p;
+		isLive = false;
+		coordinates_homog(0) = p(0);
+		coordinates_homog(1) = p(1);
+		coordinates_homog(2) = p(2);
+		coordinates_homog(3) = 1.0;
+	}
+	
+	Eigen::Vector4d getHomogeneous()
+	{
+		return coordinates_homog;
+	}
+	
+	Eigen::Vector3d getPoint()
+	{
+		return coordinates;
+	}
+	
+	void InsertBundler(int id)
+	{
+		vertexNodeId = id;
+		isInsertedIntoBundler = true;
+	}
+	
+	int g2oNodeId()
+	{
+		return vertexNodeId;
+	}
+
+private:
+	//! descriptor (e.g., BRIEF, SIFT)
+	// TODO: descriptor should be inserted.
+
+	//! Location
+	Eigen::Vector3d coordinates;
+	Eigen::Vector4d coordinates_homog;
+
+	//! Identification number (this should be unique throught map)
+	int id;
+	int vertexNodeId;
+	bool isInsertedIntoBundler;
+	bool isLive;
+};
+
+struct Point2d
+{
+public:
+	Point2d(){}
+	
+	//! copy constructor for STL container
+	Point2d(const Point2d& p)
+	{
+		id = p.id;
+		coordinates = p.coordinates;
+	}
+	
+	//! Image coordinates
+	Eigen::Vector2d coordinates;
+	int id;
+};
+
+class Map
+{
+public:
+	typedef std::tr1::unordered_map<int,Point3d> MapVector;
+	
+	Map() : pointId(-1) {};
+	
+	//! register point to a map
+	void Register(const Eigen::Vector3d &point)
+	{
+		int pid = getUniquePointId();
+		
+		Point3d p;
+		p.setPoint(pid, point);
+		
+		//! Register into map vector
+		points[pid] = p;
+	};
+	
+	void Remove(int pid)
+	{
+		points.erase(pid);
+	};
+	
+	int numPoints()
+	{
+		return points.size();
+	}
+	
+	//! expensive operation?
+	MapVector getMap()
+	{
+		return points;
+	}
+	
+	MapVector& getMapReference()
+	{
+		return points;
+	}
+	
+	Eigen::Vector3d get3Dpt(int idx)
+	{
+		return points[idx].getPoint();
+	}
+	
+private:
+	//! return unique point idenfication number
+	int getUniquePointId()
+	{
+		++pointId;
+		return pointId;
+	}
+	
+	//! point index. always increasing.
+	int pointId;
+	
+	//! vector of 3d points
+	MapVector points;
+};
+
+//! Camera simulator.
+class Camera
+{
+public:
+	typedef std::tr1::unordered_map<int,Point2d> ImageVector;
+	typedef std::tr1::unordered_map<int,Point3d> MapVector;
+	
+	Camera(double f, const Eigen::Vector2d &c) : focal_distance(f), principal_point(c)
+	{
+		//! Construct K matrix from f,c
+		K.setIdentity();
+		K(0,0) = f; 
+		K(1,1) = f;
+		K.col(2).head(2) = c;
+	}
+	
+	~Camera(){}
+	
+	ImageVector Project(const Sophus::SE3 pose, MapVector points)
+	{
+		ImageVector z;
+		Eigen::Matrix<double,3,4> P;	//! camera matrix
+		
+		P.block(0,0,3,3) = pose.rotation_matrix();
+		P.col(3).head(3) = pose.translation();
+		P = K*P;
+		
+		//! project all 3d points
+		for ( auto it = points.begin(); it != points.end(); ++it )
+		{
+			// it->first : map id
+			// it->second : coordinates
+			Eigen::Vector3d uv_homog = P*it->second.getHomogeneous();
+			
+			//! dehomonize
+			Eigen::Vector2d uv;
+			uv(0) = uv_homog(0) / uv_homog(2);
+			uv(1) = uv_homog(1) / uv_homog(2);
+			
+			//! Noise
+			uv += Eigen::Vector2d(Sample::gaussian(1.0),Sample::gaussian(1.0));
+			
+			Point2d p;
+			p.id = it->first;
+			p.coordinates = uv;
+			
+			z[it->first] = p;
+		}
+		
+		//! check points are in view
+		for ( auto it = z.begin(); it != z.end(); ++it )
+		{
+			if(it->second.coordinates[0] >= 0 && it->second.coordinates[1] >=0 && it->second.coordinates[0] < 640 && it->second.coordinates[1] < 480)
+			{
+				continue;
+			}
+			
+			z.erase(it);
+		}
+		
+		return z;
+	}
+private:
+	Eigen::Matrix3d K;
+	double focal_distance;
+	Eigen::Vector2d principal_point;
+};
+
+//! discrete motion data structure
+struct KeyFrame
+{
+public:
+	typedef std::tr1::unordered_map<int,Point2d> ImageVector;
+	
+	KeyFrame(Sophus::SE3 _pose, ImageVector observations_): pose(_pose), observations(observations_), vertexNodeId(-1), isInsertedIntoBundler(false){};
+	~KeyFrame(){};
+	
+	/// Copy con
+	KeyFrame(const KeyFrame &others)
+	{
+		pose = others.pose;
+		observations = others.observations;
+		vertexNodeId = others.vertexNodeId;
+		isInsertedIntoBundler = others.isInsertedIntoBundler;
+	}
+	
+	void InsertBundler(int id)
+	{
+		vertexNodeId = id;
+		isInsertedIntoBundler = true;
+	}
+	
+	Sophus::SE3 getPose()
+	{
+		return pose;
+	}
+	
+	ImageVector getObservations()
+	{
+		return observations;
+	}
+	
+	int g2oNodeId()
+	{
+		return vertexNodeId;
+	}
+	
+private:
+	//! Pose
+	Sophus::SE3 pose;
+	
+	//! Measurements
+	ImageVector observations;
+	
+	int vertexNodeId;
+	bool isInsertedIntoBundler;
 };
 
 class GraphBundler
@@ -192,7 +502,7 @@ public:
 		return optimizer->addParameter(cam_params);
 	}
 	
-	int addPoseVertex(const g2o::SE3Quat &pose)
+	int push_pose(const g2o::SE3Quat &pose)
 	{
 		int pose_id = getNewUniqueId();
 		
@@ -203,12 +513,31 @@ public:
 		optimizer->addVertex(v_se3);
 		
 		vPose.push_back(pose);
+		
 		PoseVectorId_to_VertexId[vPose.size()-1] = pose_id;
 		
 		return pose_id;
 	}
 	
-	int addPointVertex(const Eigen::Vector3d &point)
+	int push_pose(const Sophus::SE3 &pose)
+	{
+		int pose_id = getNewUniqueId();
+		
+		g2o::VertexSE3Expmap *v_se3 = new g2o::VertexSE3Expmap();
+		v_se3->setId(pose_id);
+		
+		g2o::SE3Quat pose_g2o(pose.unit_quaternion(),pose.translation());
+		v_se3->setEstimate(pose_g2o);
+		optimizer->addVertex(v_se3);
+		
+		vPose.push_back(pose_g2o);
+		
+		PoseVectorId_to_VertexId[vPose.size()-1] = pose_id;
+		
+		return pose_id;
+	}
+	
+	int push_point(const Eigen::Vector3d &point)
 	{
 		int point_id = getNewUniqueId();
 		
@@ -220,6 +549,7 @@ public:
 		optimizer->addVertex(v_p);
 		
 		vPoint.push_back(point);
+		
 		PointVectorId_to_VertexId[vPoint.size()-1] = point_id;
 		
 		return point_id;
@@ -247,12 +577,12 @@ public:
 	
 	void setConstraint(const int point_id,const int pose_id, const Eigen::Vector2d &z)
 	{
-		int from = PointVectorId_to_VertexId[point_id];
-		int to = PoseVectorId_to_VertexId[pose_id];
+		//int from = PointVectorId_to_VertexId[point_id];
+		//int to = PoseVectorId_to_VertexId[pose_id];
+		int from = point_id;
+		int to = pose_id;
 		
-		//std::cout << "From : " << from << " To : " << to << std::endl;
-		
-		g2o::EdgeProjectXYZ2UV * e = new g2o::EdgeProjectXYZ2UV();
+		g2o::EdgeProjectXYZ2UV *e = new g2o::EdgeProjectXYZ2UV();
 		e->setVertex(0, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer->vertices().find(from)->second));
 		e->setVertex(1, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer->vertices().find(to)->second));
 		e->setMeasurement(z);
@@ -301,4 +631,128 @@ private:
 	g2o::BlockSolver_6_3::LinearSolverType *linearSolver;
 	g2o::BlockSolver_6_3 *solver_ptr;
 	g2o::OptimizationAlgorithmLevenberg *solver;
+};
+
+class SceneManager
+{
+public:
+	typedef std::tr1::unordered_map<int,Point2d> ImageVector;
+	typedef std::tr1::unordered_map<int,Point3d> MapVector;
+	
+	SceneManager(double f, const Eigen::Vector2d &c)
+	{
+		map = new Map();
+		ground_truth_map = new Map();
+		camera = new Camera(f,c);
+		bundler = new GraphBundler(false, /* dense? */
+							true /* robust kern? */);
+							
+		if (!bundler->addCameraParams(f,c))
+		{
+			assert(false);
+		}
+	}
+	
+	~SceneManager()
+	{
+		if(map != NULL)
+			delete map;
+			
+		if(camera != NULL)
+			delete camera;
+			
+		if(ground_truth_map != NULL)
+			delete ground_truth_map;
+	}
+	
+	void pushPose(const Sophus::SE3 pose)
+	{
+		ImageVector z = camera->Project(pose,map->getMap());
+		KeyFrame kf(pose,z);
+		vKeyFrame.push_back(kf);
+		
+		//! TODO : Insert outlier information
+	}
+	
+	void pushPoint(const Eigen::Vector3d &point)
+	{
+		//! insert into map
+		map->Register(point);
+	}
+	
+	void pushGroundTruth(const Eigen::Vector3d &point)
+	{
+		ground_truth_map->Register(point);
+	}
+	
+	void bundle()
+	{
+		//! fetch all available map and insert into bundler
+		MapVector &landmarks = map->getMapReference();
+		
+		for ( auto it = landmarks.begin(); it != landmarks.end(); ++it )
+		{
+			//! insert into bundler
+			Point3d &p = it->second;
+			p.InsertBundler(bundler->push_point(it->second.getPoint()));
+		}
+		
+		int point_num = 0;
+		double sum_diff2 = 0;
+		
+		for(size_t i=0;i<bundler->numPoint();++i)
+		{
+			Eigen::Vector3d diff = bundler->getPointFromResult(i) - ground_truth_map->get3Dpt(i);
+			sum_diff2 += diff.dot(diff);
+			++point_num;
+		}
+		
+		std::cout << "Point error before optimisation (inliers only): " << sqrt(sum_diff2/point_num) << std::endl;
+		
+		//! fetch all pose and insert into bundler
+		for ( auto it = vKeyFrame.begin(); it != vKeyFrame.end(); ++it)
+		{
+			KeyFrame &kf = *it;
+			kf.InsertBundler(bundler->push_pose(kf.getPose()));
+			
+			//! set relation based on keyframe information
+			ImageVector z = kf.getObservations();
+			
+			if(z.size() >= 2)
+			{
+				for ( auto it = z.begin(); it != z.end(); ++it )
+				{
+					//! get 3d pt id (which 3d point was observed?)
+					int point_vertex_id = landmarks[it->first].g2oNodeId();
+					
+					bundler->setConstraint(point_vertex_id,kf.g2oNodeId(),it->second.coordinates);
+				}
+			}
+		}
+		
+		bundler->doBundleAdjustment(25);
+		
+		sum_diff2 = 0;
+		point_num = 0;
+		
+		//! for statistics		
+		for(size_t i=0;i<bundler->numPoint();++i)
+		{
+			Eigen::Vector3d diff = bundler->getPointFromResult(i) - ground_truth_map->get3Dpt(i);
+			sum_diff2 += diff.dot(diff);
+			++point_num;
+		}
+		
+		std::cout << "Point error after optimisation (inliers only): " << sqrt(sum_diff2/point_num) << std::endl;
+	}
+	
+private:
+	//! Vector of keyframe
+	std::vector<KeyFrame> vKeyFrame;
+	Map *map;
+	Map *ground_truth_map;
+	Camera *camera;
+	GraphBundler *bundler;
+};
+
 };

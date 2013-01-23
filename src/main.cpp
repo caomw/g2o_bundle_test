@@ -50,39 +50,7 @@
 using namespace Eigen;
 using namespace std;
 
-
-class Sample {
-public:
-  static int uniform(int from, int to);
-  static double uniform();
-  static double gaussian(double sigma);
-};
-
-static double uniform_rand(double lowerBndr, double upperBndr){
-  return lowerBndr + ((double) std::rand() / (RAND_MAX + 1.0)) * (upperBndr - lowerBndr);
-}
-
-static double gauss_rand(double mean, double sigma){
-  double x, y, r2;
-  do {
-    x = -1.0 + 2.0 * uniform_rand(0.0, 1.0);
-    y = -1.0 + 2.0 * uniform_rand(0.0, 1.0);
-    r2 = x * x + y * y;
-  } while (r2 > 1.0 || r2 == 0.0);
-  return mean + sigma * y * std::sqrt(-2.0 * log(r2) / r2);
-}
-
-int Sample::uniform(int from, int to){
-  return static_cast<int>(uniform_rand(from, to));
-}
-
-double Sample::uniform(){
-  return uniform_rand(0., 1.);
-}
-
-double Sample::gaussian(double sigma){
-  return gauss_rand(0., sigma);
-}
+typedef std::tr1::unordered_map<int,Hyon::Point2d> ImageVector;
 
 int main(int argc, const char* argv[]){
   if (argc<2)
@@ -129,19 +97,34 @@ int main(int argc, const char* argv[]){
   cout << "STRUCTURE_ONLY: " << STRUCTURE_ONLY<< endl;
   cout << "DENSE: "<<  DENSE << endl;
 
-	GraphBundler bundler(DENSE,ROBUST_KERNEL);
-	SyntheticWorldGenerator world(500,1000.0,Vector2d(320.,240.));
+	double f = 1000.0;
+	Eigen::Vector2d c(320.,240.);
 
-	if (!bundler.addCameraParams(world.getFocalLength(),world.getPrincipalPoint()))
+	/* world points are generated in constructor */
+	Hyon::SyntheticWorldGenerator world(	500,	/* number of 3d points to be generated */
+									f,	/* focal distance */
+									c	/* principal point of a camera (in pixels) */
+									);
+	
+	Hyon::SceneManager scene(f,c);
+	
+	//! We assume that map is already established in this simulation
+	for (size_t i=0; i<world.numPoints(); ++i)
 	{
-		assert(false);
+		//! Noisy calculation
+		scene.pushPoint(world.getPointWithNoise(i));
+		
+		//! For verification
+		scene.pushGroundTruth(world.getPoint(i));
 	}
-
- 	for (size_t i=0; i<world.numPoses(); ++i) 
+	
+	//! Realistic simulation. Obtain pose (navigate the world), add observations.
+	for (size_t i=0; i<world.numPoses(); ++i)
 	{
-		bundler.addPoseVertex(world.getPose(i));
+		scene.pushPose(world.getPoseSE3(i));
 	}
-
+	
+#if 0
 	int point_id=0;
 	int point_num = 0;
 	double sum_diff2 = 0;
@@ -152,7 +135,7 @@ int main(int argc, const char* argv[]){
 	//! Add points and observations.
 	for (size_t i=0; i< world.numPoints(); ++i)
 	{
-		point_id = bundler.addPointVertex(world.getPointWithNoise(i));
+		point_id = bundler.push_point(world.getPointWithNoise(i));
 	
 		int num_obs = 0;
 		
@@ -200,13 +183,15 @@ int main(int argc, const char* argv[]){
 			++point_num;
 		}/// end if (num_obs>=2)
 	}/// end for (size_t i=0; i< world.numPoints(); ++i)
-
+#endif
 	cout << endl;
 
 	cout << "Performing full BA:" << endl;
-	bundler.doBundleAdjustment(15);
+	//bundler.doBundleAdjustment(15);
+	scene.bundle();
 	cout << "Done" << endl;
-	
+
+#if 0
 	cout << "Point error before optimisation (inliers only): " << sqrt(sum_diff2/point_num) << endl;
 	
 	sum_diff2 = 0;
@@ -220,6 +205,6 @@ int main(int argc, const char* argv[]){
 	}
 	
 	cout << "Point error after optimisation (inliers only): " << sqrt(sum_diff2/point_num) << endl;
-	
+#endif
 }
 
