@@ -335,9 +335,6 @@ public:
 			uv(0) = uv_homog(0) / uv_homog(2);
 			uv(1) = uv_homog(1) / uv_homog(2);
 			
-			//! Noise
-			uv += Eigen::Vector2d(Sample::gaussian(1.0),Sample::gaussian(1.0));
-			
 			Point2d p;
 			p.id = it->first;
 			p.coordinates = uv;
@@ -361,6 +358,8 @@ public:
 					//it->second.coordinates = Eigen::Vector2d(Sample::uniform(0,640),Sample::uniform(0,480));
 					//it->second.isInlier = false;
 				}
+				
+				it->second.coordinates += Eigen::Vector2d(Sample::gaussian(1.0),Sample::gaussian(1.0));
 				
 				continue;
 			}
@@ -682,12 +681,13 @@ public:
 			delete ground_truth_map;
 	}
 	
-	void pushPose(const Sophus::SE3 pose)
+	int pushPose(const Sophus::SE3 pose)
 	{
 		ImageVector z = camera->Project(pose,map->getMap());
 		KeyFrame kf(pose,z);
 		vKeyFrame.push_back(kf);
-		
+	
+		return z.size();
 		//! TODO : Insert outlier information
 	}
 	
@@ -764,7 +764,7 @@ public:
 		{
 			//! insert into bundler
 			Point3d &p = it->second;
-			p.InsertBundler(bundler->push_point(it->second.getPoint()));
+			p.InsertBundler(bundler->push_point(it->second.getPoint() + Eigen::Vector3d(Sample::gaussian(1),Sample::gaussian(1),Sample::gaussian(1))));
 		}
 		
 		/* Statistics */

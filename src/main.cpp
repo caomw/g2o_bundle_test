@@ -112,7 +112,7 @@ int main(int argc, const char* argv[]){
 	for (size_t i=0; i<world.numPoints(); ++i)
 	{
 		//! Noisy calculation
-		scene.pushPoint(world.getPointWithNoise(i));
+		scene.pushPoint(world.getPoint(i));
 		
 		//! For verification
 		scene.pushGroundTruth(world.getPoint(i));
@@ -188,7 +188,7 @@ int main(int argc, const char* argv[]){
 
 	cout << "Performing full BA:" << endl;
 	//bundler.doBundleAdjustment(15);
-	scene.bundle2();
+	scene.bundle();
 	cout << "Done" << endl;
 
 #if 0
