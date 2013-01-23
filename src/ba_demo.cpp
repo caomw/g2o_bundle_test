@@ -179,9 +179,11 @@ int main(int argc, const char* argv[]){
     g2o::VertexSE3Expmap * v_se3
         = new g2o::VertexSE3Expmap();
     v_se3->setId(vertex_id);
-    if (i<2){
+    
+	if (i<2){
       v_se3->setFixed(true);
     }
+
     v_se3->setEstimate(pose);
     optimizer.addVertex(v_se3);
     true_poses.push_back(pose);
@@ -194,6 +196,8 @@ int main(int argc, const char* argv[]){
   cout << endl;
   tr1::unordered_map<int,int> pointid_2_trueid;
   tr1::unordered_set<int> inliers;
+
+int temp = 0;
 
   for (size_t i=0; i<true_points.size(); ++i){
     g2o::VertexSBAPointXYZ * v_p
@@ -212,6 +216,7 @@ int main(int argc, const char* argv[]){
       }
     }
     if (num_obs>=2){
+		temp+=num_obs;
       optimizer.addVertex(v_p);
       bool inlier = true;
       for (size_t j=0; j<true_poses.size(); ++j){
@@ -219,7 +224,8 @@ int main(int argc, const char* argv[]){
             = cam_params->cam_map(true_poses.at(j).map(true_points.at(i)));
 
         if (z[0]>=0 && z[1]>=0 && z[0]<640 && z[1]<480){
-          double sam = Sample::uniform();
+          
+			double sam = Sample::uniform();
           if (sam<OUTLIER_RATIO){
             z = Vector2d(Sample::uniform(0,640),
                          Sample::uniform(0,480));
@@ -253,7 +259,12 @@ int main(int argc, const char* argv[]){
       ++point_id;
       ++point_num;
     }
+	else
+	{
+		//cout << "Exception\n";
+	}
   }
+cout << "Temp : " << temp << endl;
   cout << endl;
   optimizer.initializeOptimization();
   optimizer.setVerbose(true);

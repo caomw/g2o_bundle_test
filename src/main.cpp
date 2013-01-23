@@ -188,7 +188,7 @@ int main(int argc, const char* argv[]){
 
 	cout << "Performing full BA:" << endl;
 	//bundler.doBundleAdjustment(15);
-	scene.bundle();
+	scene.bundle2();
 	cout << "Done" << endl;
 
 #if 0
